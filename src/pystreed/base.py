@@ -476,13 +476,14 @@ class BaseSTreeDSolver(BaseEstimator):
         if node_id > 0:
             parent_id = (node_id - 1) // 2
             feature_label = "True" if (node_id % 2) == 0 else "False"
-            angle = 45 if feature_label == "True" else -45
+            angle = -45 if feature_label == "True" else 45
             fh.write(f"{parent_id} -> {node_id} [labeldistance=2.5, labelangle={angle}, label=\"{feature_label}\"] ;\n")
 
         if node.is_branching_node():
             left_data, right_data = self._split(train_data, node.feature)
-            self._recursive_export_dot(fh, node.left_child, node_id * 2 + 1, feature_names, label_names, left_data)
             self._recursive_export_dot(fh, node.right_child, node_id * 2 + 2, feature_names, label_names, right_data)
+            self._recursive_export_dot(fh, node.left_child, node_id * 2 + 1, feature_names, label_names, left_data)
+            
 
     def _split(self, data, feature):
         x, y, ed = data
