@@ -261,6 +261,7 @@ PYBIND11_MODULE(cstreed, m) {
     ExposeFloatProperty(parameter_handler, "ridge-penalty", "ridge_penalty");
     ExposeStringProperty(parameter_handler, "regression-bound", "regression_lower_bound");
     ExposeFloatProperty(parameter_handler, "discrimination-limit", "discrimination_limit");
+    ExposeIntegerProperty(parameter_handler, "num-extra-cols", "num_extra_cols");
     
     /*************************************
            RandomEngine

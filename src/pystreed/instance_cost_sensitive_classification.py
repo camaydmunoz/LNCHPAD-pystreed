@@ -81,6 +81,7 @@ class STreeDInstanceCostSensitiveClassifier(BaseSTreeDSolver):
 
     def _initialize_param_handler(self):
         super()._initialize_param_handler()
+        self._params.num_extra_cols = self.n_classes_
     
     def _check_data(self, y_in, reset=True):
         y_out = []
