@@ -17,7 +17,7 @@ time, survival_prob, conf_int = kaplan_meier_estimator( events, times, conf_type
 plt.step(time, survival_prob, where="post")
 plt.fill_between(time, conf_int[0], conf_int[1], alpha=0.25, step="post")
 plt.ylim(0, 1)
-plt.ylabel("est. probability of survival $\hat{S}(t)$")
+plt.ylabel(r"est. probability of survival $\hat{S}(t)$")
 plt.xlabel("time $t$")
 plt.show()
 
@@ -30,7 +30,7 @@ pred_surv = model.predict_survival_function(X[:5])
 time_points = np.arange(1, 400)
 for i, surv_func in enumerate(pred_surv):
     plt.step(time_points, surv_func(time_points), where="post", label=f"Sample {i + 1}")
-plt.ylabel("est. probability of survival $\hat{S}(t)$")
+plt.ylabel(r"est. probability of survival $\hat{S}(t)$")
 plt.xlabel("time $t$")
 plt.legend(loc="best")
 plt.show()

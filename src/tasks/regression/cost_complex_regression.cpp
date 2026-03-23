@@ -368,7 +368,13 @@ namespace STreeD {
 				//the old data has something the new one does not
 				else if (id_new > id_old) {
 					total_diff += weight_old;
-					worst_diff += weight_old * GetWorstPerLabel(GetInstanceLabel<double>(old_instances[index_old]) / weight_old);
+					double label_average = GetInstanceLabel<double>(old_instances[index_old]) / weight_old;
+					worst_diff += weight_old * GetWorstPerLabel(label_average);
+					if (weight_old > 1.0) {
+						// if this instance combines multiple instances, the actual error may be a bit higher. Add the cost of merging these items
+						double variance = GetInstanceExtraData<double, RegExtraData>(old_instances[index_old]).ysq / weight_old - label_average * label_average;
+						worst_diff += weight_old * variance;
+					}
 					index_old++;
 				} else {//no difference
 					index_new ++;
@@ -384,7 +390,13 @@ namespace STreeD {
 			for (; index_old < size_old; index_old++) {
 				int weight_old = int(old_instances[index_old]->GetWeight());
 				total_diff += weight_old;
-				worst_diff += weight_old * GetWorstPerLabel(GetInstanceLabel<double>(old_instances[index_old]) / weight_old);
+				double label_average = GetInstanceLabel<double>(old_instances[index_old]) / weight_old;
+				worst_diff += weight_old * GetWorstPerLabel(label_average);
+				if (weight_old > 1.0) {
+					// if this instance combines multiple instances, the actual error may be a bit higher. Add the cost of merging these items
+					double variance = GetInstanceExtraData<double, RegExtraData>(old_instances[index_old]).ysq / weight_old - label_average * label_average;
+					worst_diff += weight_old * variance;
+				}
 			}
 		}
 		PairWorstCount<CostComplexRegression> result(worst_diff, total_diff);

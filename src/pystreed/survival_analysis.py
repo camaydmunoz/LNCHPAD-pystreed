@@ -355,7 +355,7 @@ class STreeDSurvivalAnalysis(BaseSTreeDSolver):
             plt.figure(figsize=(2,2))
             plt.step(fn.x, fn(fn.x), where="post")
             plt.ylim(0, 1)
-            plt.ylabel("Probability of survival $\hat{S}(t)$")
+            plt.ylabel(r"Probability of survival $\hat{S}(t)$")
             plt.xlabel("time $t$")
             filename = self.__export_directory / f"leaf_KM_{node_id}.png"
             if not os.path.exists(self.__export_directory):

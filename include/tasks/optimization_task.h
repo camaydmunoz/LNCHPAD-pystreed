@@ -80,6 +80,11 @@ namespace STreeD {
 		inline static void Add(const int left, const int right, int& out) { out = left + right; }
 		inline static void Subtract(const int left, const int right, int& out) { out = std::max(0, left - right); }
 
+		inline static int64_t Add(const int64_t left, const int64_t right) { return left + right; }
+		inline static int64_t TestAdd(const int64_t left, const int64_t right) { return left + right; }
+		inline static void Add(const int64_t left, const int64_t right, int64_t& out) { out = left + right; }
+		inline static void Subtract(const int64_t left, const int64_t right, int64_t& out) { out = std::max(int64_t(0), left - right); }
+
 		inline static double Add(const double left, const double right) { return left + right; }
 		inline static double TestAdd(const double left, const double right) { return left + right; }
 		inline static void Add(const double left, const double right, double& out) { out = left + right; }
@@ -90,6 +95,7 @@ namespace STreeD {
 		inline static std::string LabelToString(int sol_val) { return std::to_string(sol_val); }
 		inline static std::string SolToString(double sol_val) { return std::to_string(sol_val); }
 		inline static std::string SolToString(int sol_val) { return std::to_string(sol_val); }
+		inline static std::string SolToString(int64_t sol_val) { return std::to_string(sol_val); }
 		inline static std::string ScoreToString(double sol_val) { return std::to_string(sol_val); }
 		inline static std::string ScoreToString(int sol_val) { return std::to_string(sol_val); }
 

@@ -180,5 +180,6 @@ class STreeDClassifier(BaseSTreeDSolver, ClassifierMixin):
     def _export_dot_leaf_node(self, fh, node, node_id, label_names, train_data):
         if not hasattr(self, "_colors"):
             self._colors = _color_brew(self.n_classes_)
-        color = self._colors[node.label]
+        label_index = self.classes_.index(node.label)
+        color = self._colors[label_index]
         return super()._export_dot_leaf_node(fh, node, node_id, label_names, train_data, color=color)

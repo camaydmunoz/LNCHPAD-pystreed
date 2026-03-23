@@ -355,7 +355,7 @@ namespace STreeD {
 			// search for solutions in the cache for lower depth limits
 			int current_depth = branch.Depth();
 			for (int lower_max_depth = max_depth - 1; lower_max_depth > 0; lower_max_depth--) {
-				int lower_num_nodes = std::min(num_nodes, 1 << (lower_max_depth)-1);
+				int lower_num_nodes = std::min(num_nodes, (1 << lower_max_depth)-1);
 				if (cache->IsOptimalAssignmentCached(data, branch, lower_max_depth, lower_num_nodes)) {
 					const auto cached_sols = cache->RetrieveOptimalAssignment(data, branch, lower_max_depth, lower_num_nodes);
 					if constexpr (OT::total_order) {
@@ -688,7 +688,7 @@ namespace STreeD {
 				int current_depth = branch.Depth();
 				int max_depth_searched = 0;
 				for (int lower_max_depth = depth - 1; lower_max_depth > 0; lower_max_depth--) {
-					int lower_num_nodes = std::min(num_nodes, 1 << (lower_max_depth)-1);
+					int lower_num_nodes = std::min(num_nodes, (1 << lower_max_depth)-1);
 					if (cache->IsOptimalAssignmentCached(data, branch, lower_max_depth, lower_num_nodes)) {
 						AddSols<OT>(task, current_depth, solutions, cache->RetrieveOptimalAssignment(data, branch, lower_max_depth, lower_num_nodes));
 						max_depth_searched = lower_max_depth;
