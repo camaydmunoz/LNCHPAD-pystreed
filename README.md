@@ -36,6 +36,16 @@ cd pystreed
 pip install . 
 ```
 
+
+### Install from source in restricted/offline environments
+If `pip install .` fails while trying to download build dependencies (for example with errors for `setuptools` access), install with disabled build isolation so pip reuses already-installed local build tools:
+
+```sh
+pip install --no-build-isolation -e .
+```
+
+This is useful in CI or sandboxed environments where PyPI/network access is blocked.
+
 ### Example usage
 `pystreed` can be used, for example, as follows:
 
