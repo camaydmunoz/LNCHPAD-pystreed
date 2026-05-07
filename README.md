@@ -28,6 +28,16 @@ pip install pystreed
 ```
 
 ### Install from source using pip
+
+### Offline / restricted-network installs
+If `pip install .` or `pip install -e .` fails while trying to fetch build dependencies (for example `setuptools` or `pybind11`), install with build isolation disabled **only after** ensuring compatible local versions are already present:
+
+```bash
+python -m pip install -e . --no-build-isolation
+```
+
+This project requires `setuptools` and `pybind11` at build time as declared in `pyproject.toml`.
+
 The `pystreed` python package can also be installed from source as follows:
 
 ```sh
