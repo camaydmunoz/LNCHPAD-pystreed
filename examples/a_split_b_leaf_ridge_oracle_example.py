@@ -20,26 +20,73 @@ def make_synthetic(n=300, seed=7):
     return A, B, y
 
 
+def make_close_objective_case():
+    # Tiny deterministic dataset with nearly tied candidates.
+    A = np.array([
+        [0, 0, 0],
+        [0, 0, 1],
+        [0, 1, 0],
+        [0, 1, 1],
+        [1, 0, 0],
+        [1, 0, 1],
+        [1, 1, 0],
+        [1, 1, 1],
+    ], dtype=int)
+    B = np.array([
+        [0.0, 0.0],
+        [0.0, 1.0],
+        [1.0, 0.0],
+        [1.0, 1.0],
+        [0.0, 0.0],
+        [0.0, 1.0],
+        [1.0, 0.0],
+        [1.0, 1.0],
+    ])
+    y = np.array([0.0, 1.0, 1.1, 2.0, 0.03, 1.02, 1.09, 2.02])
+    return A, B, y
+
+
 def ridge_leaf_fit(B_leaf, y_leaf, ridge_penalty):
-    n = B_leaf.shape[0]
-    X = np.column_stack([np.ones(n), B_leaf])
-    p = X.shape[1]
-    reg = np.eye(p) * ridge_penalty
-    reg[0, 0] = 0.0  # do not penalize intercept
-    beta = np.linalg.solve(X.T @ X + reg, X.T @ y_leaf)
-    residual = y_leaf - X @ beta
+    # STreeD ridge convention:
+    # - center B and y in leaf
+    # - gamma = n_leaf * ridge_penalty
+    # - no intercept penalty
+    # - intercept reconstructed after centered solve
+    n_leaf = B_leaf.shape[0]
+    if n_leaf == 0:
+        raise ValueError("Empty leaf is invalid")
+
+    b_mean = B_leaf.mean(axis=0)
+    y_mean = float(y_leaf.mean())
+    Bc = B_leaf - b_mean
+    yc = y_leaf - y_mean
+
+    gamma = n_leaf * ridge_penalty
+    lhs = Bc.T @ Bc + gamma * np.eye(B_leaf.shape[1])
+    rhs = Bc.T @ yc
+    coef = np.linalg.solve(lhs, rhs)
+    intercept = y_mean - float(b_mean @ coef)
+
+    pred = B_leaf @ coef + intercept
+    residual = y_leaf - pred
     sse = float(residual @ residual)
-    ridge = float(ridge_penalty * (beta[1:] @ beta[1:]))
-    return beta, sse + ridge
+    obj = sse + float(gamma * (coef @ coef))
+
+    return {
+        "coef": coef,
+        "intercept": intercept,
+        "gamma": gamma,
+        "objective": obj,
+    }
 
 
-def objective_for_partition(B, y, leaf_indices, ridge_penalty):
+def objective_for_partition(B, y, leaf_indices):
     total = 0.0
     leaf_models = []
     for idx in leaf_indices:
-        beta, leaf_obj = ridge_leaf_fit(B[idx], y[idx], ridge_penalty)
-        total += leaf_obj
-        leaf_models.append(beta)
+        model = ridge_leaf_fit(B[idx], y[idx], ridge_penalty)
+        total += model["objective"]
+        leaf_models.append(model)
     return total, leaf_models
 
 
@@ -74,39 +121,93 @@ def masks_for_tree(A, root, left=None, right=None):
     return leaves, " | ".join(parts)
 
 
-def brute_force_ab_ridge_tree(A, B, y, ridge_penalty, min_leaf_node_size, cost_complexity=0.0):
+def _sort_key(candidate):
+    # Stable deterministic ordering for close objectives.
+    return (
+        round(candidate["objective"], 12),
+        candidate["depth"],
+        candidate["nodes"],
+        candidate["split"],
+    )
+
+
+def sorted_oracle_ab_ridge_tree(A, B, y, ridge_penalty_value, min_leaf_node_size, cost_complexity=0.0):
+    global ridge_penalty
+    ridge_penalty = ridge_penalty_value
+
     n_features = A.shape[1]
-    best = {"objective": np.inf}
-
+    all_candidates = []
     all_idx = np.ones(A.shape[0], dtype=bool)
-    if all_idx.sum() >= min_leaf_node_size:
-        obj, models = objective_for_partition(B, y, [all_idx], ridge_penalty)
-        if obj < best["objective"]:
-            best = {"objective": obj, "split": "leaf", "masks": [all_idx], "models": models, "nodes": 0}
 
+    # Depth 0 tree (single leaf).
+    if all_idx.sum() >= min_leaf_node_size:
+        obj, models = objective_for_partition(B, y, [all_idx])
+        all_candidates.append(
+            {
+                "objective": obj,
+                "split": "leaf",
+                "masks": [all_idx],
+                "models": models,
+                "nodes": 0,
+                "depth": 0,
+            }
+        )
+
+    # Depth 1 trees.
     for root in range(n_features):
         masks, split = masks_for_tree(A, root)
         if min(mask.sum() for mask in masks) < min_leaf_node_size:
             continue
-        obj, models = objective_for_partition(B, y, masks, ridge_penalty)
-        obj += cost_complexity
-        if obj < best["objective"]:
-            best = {"objective": obj, "split": split, "masks": masks, "models": models, "nodes": 1}
+        obj, models = objective_for_partition(B, y, masks)
+        all_candidates.append(
+            {
+                "objective": obj + cost_complexity,
+                "split": split,
+                "masks": masks,
+                "models": models,
+                "nodes": 1,
+                "depth": 1,
+            }
+        )
 
+    # Depth 2 trees.
     for root in range(n_features):
         for left in [None, *range(n_features)]:
             for right in [None, *range(n_features)]:
                 if left is None and right is None:
                     continue
+                if left == root or right == root:
+                    # Avoid path-duplicate split on same feature.
+                    continue
                 masks, split = masks_for_tree(A, root, left, right)
                 if min(mask.sum() for mask in masks) < min_leaf_node_size:
                     continue
-                obj, models = objective_for_partition(B, y, masks, ridge_penalty)
+                obj, models = objective_for_partition(B, y, masks)
                 num_nodes = 1 + int(left is not None) + int(right is not None)
-                obj += cost_complexity * num_nodes
-                if obj < best["objective"]:
-                    best = {"objective": obj, "split": split, "masks": masks, "models": models, "nodes": num_nodes}
-    return best
+                all_candidates.append(
+                    {
+                        "objective": obj + cost_complexity * num_nodes,
+                        "split": split,
+                        "masks": masks,
+                        "models": models,
+                        "nodes": num_nodes,
+                        "depth": 2,
+                    }
+                )
+
+    return sorted(all_candidates, key=_sort_key)
+
+
+def brute_force_ab_ridge_tree(A, B, y, ridge_penalty, min_leaf_node_size, cost_complexity=0.0):
+    sorted_candidates = sorted_oracle_ab_ridge_tree(
+        A=A,
+        B=B,
+        y=y,
+        ridge_penalty_value=ridge_penalty,
+        min_leaf_node_size=min_leaf_node_size,
+        cost_complexity=cost_complexity,
+    )
+    return sorted_candidates[0]
 
 
 def tree_structure(node):
@@ -117,18 +218,28 @@ def tree_structure(node):
 
 def predictions_from_partition(B, masks, models):
     pred = np.zeros(B.shape[0], dtype=float)
-    for mask, beta in zip(masks, models):
-        X = np.column_stack([np.ones(mask.sum()), B[mask]])
-        pred[mask] = X @ beta
+    for mask, model in zip(masks, models):
+        pred[mask] = B[mask] @ model["coef"] + model["intercept"]
     return pred
 
 
-if __name__ == "__main__":
-    A, B, y = make_synthetic(n=120, seed=11)
-    ridge_penalty = 1.0
-    min_leaf_node_size = 15
-    cost_complexity = 0.0
+def print_top_candidates(candidates, top_k=10):
+    print(f"Top {min(top_k, len(candidates))} candidates:")
+    for i, c in enumerate(candidates[:top_k], start=1):
+        print(f"  {i:>2}. obj={c['objective']:.10f} depth={c['depth']} nodes={c['nodes']} split={c['split']}")
 
+
+def run_case(case_name, A, B, y, ridge_penalty, min_leaf_node_size, cost_complexity):
+    print(f"\n=== {case_name} ===")
+
+    oracle_candidates = sorted_oracle_ab_ridge_tree(
+        A=A,
+        B=B,
+        y=y,
+        ridge_penalty_value=ridge_penalty,
+        min_leaf_node_size=min_leaf_node_size,
+        cost_complexity=cost_complexity,
+    )
     brute = brute_force_ab_ridge_tree(
         A=A,
         B=B,
@@ -137,7 +248,19 @@ if __name__ == "__main__":
         min_leaf_node_size=min_leaf_node_size,
         cost_complexity=cost_complexity,
     )
-    brute_pred = predictions_from_partition(B, brute["masks"], brute["models"])
+    best = oracle_candidates[0]
+
+    sorted_ok = all(
+        oracle_candidates[i]["objective"] <= oracle_candidates[i + 1]["objective"] + 1e-12
+        for i in range(len(oracle_candidates) - 1)
+    )
+
+    print_top_candidates(oracle_candidates, top_k=10)
+    print(f"Sorted nondecreasing objective: {sorted_ok}")
+    print(f"Best oracle objective: {best['objective']:.10f}")
+    print(f"Brute-force best objective: {brute['objective']:.10f}")
+    print(f"Best oracle split: {best['split']}")
+    print(f"Brute-force split: {brute['split']}")
 
     model = STreeDPiecewiseLinearRegressor(
         max_depth=2,
@@ -149,20 +272,59 @@ if __name__ == "__main__":
         verbose=False,
     )
     model.fit(A, y, continuous_columns=B)
-    st_pred = model.predict(A, continuous_columns=B)
 
-    print("=== A/B ridge leaf oracle check (depth <= 2) ===")
-    print(f"Brute-force best objective: {brute['objective']:.8f}")
+    oracle_objectives = np.array([c["objective"] for c in oracle_candidates])
+    st_pred = None
+    st_score = np.nan
     if hasattr(model, "fit_result"):
-        print(f"STreeD fit_result.score(): {model.fit_result.score():.8f}")
+        st_score = model.fit_result.score()
+        st_pred = model.predict(A, continuous_columns=B)
+        print(f"STreeD learned split structure: {tree_structure(model.get_tree())}")
+    else:
+        print("STreeD did not return a feasible tree for this case.")
+
+    close_idx = int(np.argmin(np.abs(oracle_objectives - st_score))) if np.isfinite(st_score) else -1
+
+    if np.isfinite(st_score):
+        print(f"STreeD fit_result.score(): {st_score:.10f}")
+        print(
+            f"Closest oracle candidate: idx={close_idx + 1}, "
+            f"obj={oracle_candidates[close_idx]['objective']:.10f}, "
+            f"split={oracle_candidates[close_idx]['split']}"
+        )
+        diff = abs(oracle_candidates[close_idx]["objective"] - st_score)
+        print(f"Abs objective difference: {diff:.12f}")
     else:
         print("STreeD objective unavailable")
 
-    print(f"Brute-force best split structure: {brute['split']}")
-    print(f"STreeD learned split structure: {tree_structure(model.get_tree())}")
+    brute_pred = predictions_from_partition(B, brute["masks"], brute["models"])
+    print("Prediction quality (training set):")
+    print(f"  Oracle/Brute MSE: {mean_squared_error(y, brute_pred):.10f}")
+    print(f"  Oracle/Brute R2:  {r2_score(y, brute_pred):.10f}")
+    if st_pred is not None:
+        print(f"  STreeD MSE:       {mean_squared_error(y, st_pred):.10f}")
+        print(f"  STreeD R2:        {r2_score(y, st_pred):.10f}")
 
-    print("\n=== Prediction quality (training set) ===")
-    print(f"Brute-force MSE: {mean_squared_error(y, brute_pred):.8f}")
-    print(f"Brute-force R2:  {r2_score(y, brute_pred):.8f}")
-    print(f"STreeD MSE:      {mean_squared_error(y, st_pred):.8f}")
-    print(f"STreeD R2:       {r2_score(y, st_pred):.8f}")
+
+if __name__ == "__main__":
+    A, B, y = make_synthetic(n=120, seed=11)
+    run_case(
+        case_name="A/B ridge leaf oracle check (depth <= 2)",
+        A=A,
+        B=B,
+        y=y,
+        ridge_penalty=1.0,
+        min_leaf_node_size=15,
+        cost_complexity=0.0,
+    )
+
+    A2, B2, y2 = make_close_objective_case()
+    run_case(
+        case_name="Close-objective tie-break stability check",
+        A=A2,
+        B=B2,
+        y=y2,
+        ridge_penalty=0.25,
+        min_leaf_node_size=2,
+        cost_complexity=0.0,
+    )
