@@ -123,11 +123,20 @@ def predictions_from_partition(B, masks, models):
     return pred
 
 
+def objective_from_predictions(y, pred, models, ridge_penalty):
+    sse = float(np.sum((y - pred) ** 2))
+    ridge = float(sum(ridge_penalty * (beta[1:] @ beta[1:]) for beta in models))
+    return sse, ridge, sse + ridge
+
+
 if __name__ == "__main__":
     A, B, y = make_synthetic(n=120, seed=11)
+    lasso_penalty = 0.0
     ridge_penalty = 1.0
     min_leaf_node_size = 15
     cost_complexity = 0.0
+    max_depth = 2
+    max_num_nodes = 3
 
     brute = brute_force_ab_ridge_tree(
         A=A,
@@ -138,11 +147,13 @@ if __name__ == "__main__":
         cost_complexity=cost_complexity,
     )
     brute_pred = predictions_from_partition(B, brute["masks"], brute["models"])
+    brute_sse, brute_ridge, brute_obj = objective_from_predictions(y, brute_pred, brute["models"], ridge_penalty)
 
     model = STreeDPiecewiseLinearRegressor(
-        max_depth=2,
+        max_depth=max_depth,
+        max_num_nodes=max_num_nodes,
         min_leaf_node_size=min_leaf_node_size,
-        lasso_penalty=0.0,
+        lasso_penalty=lasso_penalty,
         ridge_penalty=ridge_penalty,
         cost_complexity=cost_complexity,
         random_seed=0,
@@ -152,7 +163,7 @@ if __name__ == "__main__":
     st_pred = model.predict(A, continuous_columns=B)
 
     print("=== A/B ridge leaf oracle check (depth <= 2) ===")
-    print(f"Brute-force best objective: {brute['objective']:.8f}")
+    print(f"Brute-force best objective (SSE + ridge): {brute['objective']:.8f}")
     if hasattr(model, "fit_result"):
         print(f"STreeD fit_result.score(): {model.fit_result.score():.8f}")
     else:
@@ -166,3 +177,62 @@ if __name__ == "__main__":
     print(f"Brute-force R2:  {r2_score(y, brute_pred):.8f}")
     print(f"STreeD MSE:      {mean_squared_error(y, st_pred):.8f}")
     print(f"STreeD R2:       {r2_score(y, st_pred):.8f}")
+    print(f"Brute-force objective decomposition: SSE={brute_sse:.8f}, ridge={brute_ridge:.8f}, total={brute_obj:.8f}")
+    print(f"STreeD total SSE (from MSE*n):      {mean_squared_error(y, st_pred) * len(y):.8f}")
+
+    print("\n=== Single-leaf diagnostic (max_depth=0) ===")
+    single_oracle_beta, _ = ridge_leaf_fit(B, y, ridge_penalty=ridge_penalty)
+    X_full = np.column_stack([np.ones(len(y)), B])
+    single_oracle_pred = X_full @ single_oracle_beta
+    single_oracle_sse = float(np.sum((y - single_oracle_pred) ** 2))
+    single_oracle_ridge = float(ridge_penalty * (single_oracle_beta[1:] @ single_oracle_beta[1:]))
+    single_oracle_obj = single_oracle_sse + single_oracle_ridge
+
+    single_model = STreeDPiecewiseLinearRegressor(
+        max_depth=0,
+        max_num_nodes=0,
+        min_leaf_node_size=min_leaf_node_size,
+        lasso_penalty=lasso_penalty,
+        ridge_penalty=ridge_penalty,
+        cost_complexity=cost_complexity,
+        random_seed=0,
+        verbose=False,
+    )
+    single_model.fit(A, y, continuous_columns=B)
+    single_st_pred = single_model.predict(A, continuous_columns=B)
+    single_st_sse = float(np.sum((y - single_st_pred) ** 2))
+    single_st_ridge = single_oracle_ridge
+    single_st_obj = single_st_sse + single_st_ridge
+    print(f"Oracle one-leaf intercept:      {single_oracle_beta[0]: .8f}")
+    print(f"Oracle one-leaf coefficients:   {single_oracle_beta[1:]}")
+    print(f"Oracle one-leaf SSE:            {single_oracle_sse:.8f}")
+    print(f"Oracle one-leaf ridge:          {single_oracle_ridge:.8f}")
+    print(f"Oracle one-leaf total objective:{single_oracle_obj:.8f}")
+    print(f"STreeD one-leaf SSE:            {single_st_sse:.8f}")
+    print(f"STreeD one-leaf total(+ridge*): {single_st_obj:.8f}")
+    print(f"Single-leaf max |pred diff|:    {np.max(np.abs(single_oracle_pred - single_st_pred)):.8e}")
+    print("* STreeD leaf coeffs/intercept are not directly exposed; ridge term reused from oracle fit.")
+
+    print("\n=== Fixed-tree objective diagnostic (same oracle convention) ===")
+    root = model.get_tree()
+    st_masks = []
+    if root.is_leaf_node():
+        st_masks = [np.ones(len(y), dtype=bool)]
+    else:
+        root_right = A[:, root.feature] == 1
+        root_left = ~root_right
+        left = root.left_child
+        right = root.right_child
+        if left.is_leaf_node():
+            st_masks.append(root_left)
+        else:
+            l_right = (A[:, left.feature] == 1) & root_left
+            st_masks.extend([root_left & ~l_right, l_right])
+        if right.is_leaf_node():
+            st_masks.append(root_right)
+        else:
+            r_right = (A[:, right.feature] == 1) & root_right
+            st_masks.extend([root_right & ~r_right, r_right])
+    st_obj_oracle, _ = objective_for_partition(B, y, st_masks, ridge_penalty)
+    print(f"Oracle objective on oracle-best structure: {brute_obj:.8f}")
+    print(f"Oracle objective on STreeD structure:      {st_obj_oracle:.8f}")
