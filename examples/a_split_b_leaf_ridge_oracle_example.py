@@ -21,16 +21,29 @@ def make_synthetic(n=300, seed=7):
 
 
 def ridge_leaf_fit(B_leaf, y_leaf, ridge_penalty):
+    """Closed-form one-leaf ridge approximation matching STreeD conventions.
+
+    Based on source inspection in src/tasks/regression/piecewise_linear_regression.cpp:
+    - features and target are centered (not variance-scaled),
+    - the effective ridge term is gamma = n_samples * ridge_penalty,
+    - intercept is handled separately (not penalized).
+    """
     n = B_leaf.shape[0]
-    X = np.column_stack([np.ones(n), B_leaf])
-    p = X.shape[1]
-    reg = np.eye(p) * ridge_penalty
-    reg[0, 0] = 0.0  # do not penalize intercept
-    beta = np.linalg.solve(X.T @ X + reg, X.T @ y_leaf)
-    residual = y_leaf - X @ beta
+    mu_x = B_leaf.mean(axis=0)
+    mu_y = y_leaf.mean()
+
+    X_centered = B_leaf - mu_x
+    y_centered = y_leaf - mu_y
+
+    gamma = n * ridge_penalty
+    beta = np.linalg.solve(X_centered.T @ X_centered + gamma * np.eye(B_leaf.shape[1]), X_centered.T @ y_centered)
+    intercept = mu_y - mu_x @ beta
+
+    pred = intercept + B_leaf @ beta
+    residual = y_leaf - pred
     sse = float(residual @ residual)
-    ridge = float(ridge_penalty * (beta[1:] @ beta[1:]))
-    return beta, sse + ridge
+    ridge = float(gamma * (beta @ beta))
+    return np.concatenate([[intercept], beta]), sse + ridge
 
 
 def objective_for_partition(B, y, leaf_indices, ridge_penalty):
